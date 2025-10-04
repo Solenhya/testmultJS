@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Three.js Multijoueur - Serveur autoritaire</title>
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+</head>
+<body style="margin:0; overflow:hidden;">
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+  
+const socket = io("http://localhost:3000");
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer();
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+camera.position.z = 5;
+
+const geometry = new THREE.BoxGeometry();
+const localMaterial = new THREE.MeshBasicMaterial({ color: 0x00ff00 });
+const otherMaterial = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+const playerMesh = new THREE.Mesh(geometry, localMaterial);
+scene.add(playerMesh);
+
+let players = {};
+let socketId = null;
+
+socket.on("connect", () => {
+  socketId = socket.id;
+
+});
+socket.on("state", (data) => {
+  // s'assure que les objets locaux corresponde a l'état du serveur
+  updatePlayers(players,data);
+  players = data
+  });
+
+
+
+function updatePlayers(currentPlayerDict, incomingPlayersDict) {
+    const playersToDelete = [];
+    const playersToSpawn = [];
+
+    for (const id in currentPlayerDict) {
+        if (!(id in incomingPlayersDict)) playersToDelete.push(id);
+    }
+
+    for (const id in incomingPlayersDict) {
+      if(!(id==socketId)){
+        if (!(id in currentPlayerDict)) playersToSpawn.push(id);
+      }
+    }
+
+    for(const id of playersToDelete){
+      const objectToRemove = scene.getObjectByName(id);
+      disposeObject(objectToRemove);
+      console.log("Player to remove",playersToDelete)
+    }
+    for (const id of playersToSpawn){
+        const m = new THREE.Mesh(geometry, otherMaterial);
+        m.name = id;
+        scene.add(m);
+        console.log("Player to add",playersToSpawn)
+    }
+
+}
+function disposeObject(obj) {
+    if (!obj) return;
+
+    // Recursively dispose of children
+    while (obj.children.length > 0) {
+        disposeObject(obj.children[0]);
+        obj.remove(obj.children[0]);
+    }
+
+    // Remove from parent if exists
+    if (obj.parent) {
+        obj.parent.remove(obj);
+    }
+
+    // Dispose geometry
+    if (obj.geometry) {
+        obj.geometry.dispose();
+    }
+
+    // Dispose material(s)
+    if (obj.material) {
+        if (Array.isArray(obj.material)) {
+            obj.material.forEach(mat => disposeMaterial(mat));
+        } else {
+            disposeMaterial(obj.material);
+        }
+    }
+}
+
+function disposeMaterial(material) {
+    // Dispose textures attached to material
+    for (const key in material) {
+        if (material[key] && material[key].isTexture) {
+            material[key].dispose();
+        }
+    }
+    material.dispose();
+}
+// Entrées clavier
+const input = { up: false, down: false, left: false, right: false };
+
+document.addEventListener("keydown", (e) => {
+  if(e.key === "z") input.up = true;
+  if(e.key === "s") input.down = true;
+  if(e.key === "q") input.left = true;
+  if(e.key === "d") input.right = true;
+  socket.emit("input", input);
+});
+
+document.addEventListener("keyup", (e) => {
+  if(e.key === "z") input.up = false;
+  if(e.key === "s") input.down = false;
+  if(e.key === "q") input.left = false;
+  if(e.key === "d") input.right = false;
+  socket.emit("input", input);
+});
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+
+  // mets à jour les positions
+  for (const id in players) {
+    if (id === socketId) {
+      playerMesh.position.x = players[id].x;
+      playerMesh.position.y = players[id].y;
+    } else {
+      let other = scene.getObjectByName(id);
+      if (!other) {
+        console.log("Erreur sur la liste des players",players)
+        console.log("Id problematique:",id)
+      }
+      other.position.x = players[id].x;
+      other.position.y = players[id].y;
+    }
+  }
+  
+
+}
+animate();
+</script>
+</body>
+</html>
